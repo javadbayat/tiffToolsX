@@ -1,0 +1,191 @@
+Number.prototype.toHRESULT = function () {
+    var hr = (0x100000000 + this).toString(16).toUpperCase();
+    if (hr.length > 8)
+        throw new Error("Number too large for HRESULT.");
+    while (hr.length != 8)
+        hr = "0" + hr;
+    return ("0x" + hr);
+};
+
+var fso = WSH.CreateObject("Scripting.FileSystemObject");
+var wshShell = WSH.CreateObject("WScript.Shell");
+
+if (fso.GetBaseName(WSH.FullName).toLowerCase() != "cscript") {
+    showError("This program must be run using 'cscript.exe'.");
+    WSH.Quit(1);
+}
+
+var station = LoadStation("CommonFileDialog.dll");
+station.ScriptRoot = this;
+
+try {
+    var tiff = WSH.CreateObject("WIA.ImageFile");
+}
+catch (err) {
+    WSH.StdErr.WriteLine("[error] Unable to create an instance of the ImageFile object. Most likely you are running an old version of Microsoft Windows, which lacks Windows Image Acquisition (WIA) library v2.0.");
+    WSH.StdErr.WriteLine("  Technical details: " + err.message);
+    WSH.StdErr.WriteLine("  Error code: " + err.number.toHRESULT());
+    WSH.Quit(100);
+}
+
+var wiaFormatBMP = "{B96B3CAB-0728-11D3-9D7B-0000F81EF32E}";
+var wiaFormatPNG = "{B96B3CAF-0728-11D3-9D7B-0000F81EF32E}";
+var wiaFormatGIF = "{B96B3CB0-0728-11D3-9D7B-0000F81EF32E}";
+var wiaFormatJPEG = "{B96B3CAE-0728-11D3-9D7B-0000F81EF32E}";
+var wiaFormatTIFF = "{B96B3CB1-0728-11D3-9D7B-0000F81EF32E}";
+
+WSH.StdOut.WriteLine("Welcome to SplitTIFF, the free light-weight TIFF splitter!");
+
+var e = new Enumerator(WSH.Arguments.Unnamed);
+if (e.atEnd()) {
+    var dialog = station.NewFileOpenDialog();
+    dialog.Options |= FOS_FORCEFILESYSTEM;
+    dialog.Filter = "TIFF Files (*.tif;*.tiff)\0*.tif;*.tiff\0All Files\0*.*";
+    dialog.FilterIndex = 1;
+    dialog.Title = "Select Source TIFF File";
+    if (!dialog.Show(station.ConsoleWindow))
+        WSH.Quit(101);
+    
+    var tiffName = dialog.Result;
+    WSH.StdOut.WriteLine("[notice] Selected TIFF file: '" + tiffName + "'");
+}
+else
+    var tiffName = e.item();
+
+try {
+    tiff.LoadFile(tiffName);
+    if (tiff.FormatID != wiaFormatTIFF)
+        throw new Error("The specified file is in an invalid format.");
+}
+catch (err) {
+    WSH.StdErr.WriteLine("[error] Unable to load the TIFF file '" + tiffName + "'.");
+    WSH.StdErr.WriteLine("  Technical details: " + err.message);
+    WSH.StdErr.WriteLine("  Error code: " + ((err.number) ? err.number.toHRESULT() : "N/A"));
+    WSH.Quit(102);
+}
+
+var fc = tiff.FrameCount;
+WSH.StdOut.WriteLine("[notice] The source TIFF file was loaded with " + fc + " page(s).");
+
+e.moveNext();
+if (e.atEnd()) {
+    var dialog = station.NewFileOpenDialog();
+    dialog.Options |= FOS_FORCEFILESYSTEM | FOS_PICKFOLDERS;
+    dialog.Title = "Select Destination Folder";
+    if (!dialog.Show(station.ConsoleWindow))
+        WSH.Quit(103);
+    
+    var destPath = fso.BuildPath(dialog.Result, "%d.png");
+    WSH.StdOut.WriteLine("[notice] Selected destination path: '" + destPath + "'");
+}
+else
+    var destPath = e.item();
+
+if (destPath.indexOf("%d") == -1) {
+    WSH.StdErr.WriteLine("[error] Missing the placeholder '%d' in the destination path.");
+    WSH.Quit(104);
+}
+
+var ip = WSH.CreateObject("WIA.ImageProcess");
+ip.Filters.Add(ip.FilterInfos("Convert").FilterID);
+
+var namedArgs = WSH.Arguments.Named;
+if (namedArgs.Exists("Q")) {
+    var quality = Number(namedArgs("Q"));
+    if (isNaN(quality))
+        WSH.StdErr.WriteLine("[warn] The output image quality specified in the /q parameter is not a valid number. Proceeding with the default image quality (100)...");
+    else {
+        try {
+            ip.Filters(1).Properties("Quality") = quality;
+        }
+        catch (err) {
+            WSH.StdErr.WriteLine("[warn] Unable to set the quality of the output images to " + quality + ". Proceeding with the default image quality (100)...");
+            WSH.StdErr.WriteLine("  Technical details: " + err.message);
+            WSH.StdErr.WriteLine("  Error code: " + err.number.toHRESULT());
+        }
+    }
+}
+
+var outputFormat = fso.GetExtensionName(destPath).toLowerCase();
+
+for (var i = 1;i <= fc;i++) {
+    tiff.ActiveFrame = i;
+    
+    var frame;
+    try {
+        switch (outputFormat) {
+        case "bmp" :
+        case "dib" :
+            ip.Filters(1).Properties("FormatID") = wiaFormatBMP;
+            frame = ip.Apply(tiff);
+            break;
+        case "png" :
+            ip.Filters(1).Properties("FormatID") = wiaFormatPNG;
+            frame = ip.Apply(tiff);
+            break;
+        case "gif" :
+            ip.Filters(1).Properties("FormatID") = wiaFormatGIF;
+            frame = ip.Apply(tiff);
+            break;
+        case "jpg" :
+        case "jpeg" :
+        case "jpe" :
+        case "jfif" :
+            ip.Filters(1).Properties("FormatID") = wiaFormatJPEG;
+            frame = ip.Apply(tiff);
+            break;
+        default : // TIFF
+            ip.Filters(1).Properties("FormatID") = wiaFormatPNG;
+            frame = ip.Apply(tiff);
+            ip.Filters(1).Properties("FormatID") = wiaFormatTIFF;
+            frame = ip.Apply(frame);
+        }
+    }
+    catch (err) {
+        WSH.StdErr.WriteLine("[warn] Unable to extract the page " + i + ".");
+        WSH.StdErr.WriteLine("  Technical details: " + err.message);
+        WSH.StdErr.WriteLine("  Error code: " + err.number.toHRESULT());
+        continue;
+    }
+    
+    try {
+        frame.SaveFile(destPath.replace("%d", i));
+    }
+    catch (err) {
+        WSH.StdErr.WriteLine("[warn] Unable to create an image file containing the page " + i + ".");
+        WSH.StdErr.WriteLine("  Technical details: " + err.message);
+        WSH.StdErr.WriteLine("  Error code: " + err.number.toHRESULT());
+        continue;
+    }
+    
+    WSH.StdOut.WriteLine("[notice] Extracted the page " + i + "/" + fc + ".");
+}
+
+WSH.StdOut.WriteLine("[notice] Done!");
+
+function LoadStation(moduleName) {
+    var fileName = WSH.ScriptFullName;
+    // var fileName = location.pathname;
+
+    var cmd = "rundll32 " + moduleName + ",StationInject";
+    var env = wshShell.Environment("Process");
+    env("ActiveStation") = "?";
+    var initialDir = wshShell.CurrentDirectory;
+    wshShell.CurrentDirectory = fso.GetParentFolderName(fileName);
+    if (!fso.FileExists(moduleName))
+        throw new Error('The module "' + moduleName + '" could not be found');
+
+    var exitCode = wshShell.Run(cmd, 0, true);
+    wshShell.CurrentDirectory = initialDir;
+    if (exitCode)
+        throw new Error("StationInject has failed with error code " + exitCode);
+
+    var station = GetObject(env("ActiveStation"));
+    env.Remove("ActiveStation");
+
+    return station;
+}
+
+function showError(message) {
+    wshShell.Popup(message, 0, "SplitTIFF", 16);
+}
