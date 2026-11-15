@@ -1,0 +1,3 @@
+LIBRARY CommonFileDialog
+EXPORTS
+	StationInject
