@@ -1,5 +1,5 @@
 # TIFF Tools X
-Two WSH scripts used for **creating or splitting multi-page TIFF files**. Plus, a COM component used by scripts to open [Common File Dialogs](https://learn.microsoft.com/en-us/windows/win32/shell/common-file-dialog). An improved version of the former [TIFF Tools repository](https://github.com/javadbayat/tifftools).
+Two WSH scripts used for **creating or splitting multi-page TIFF files**. Plus, a COM component used by scripts to open [Common File Dialogs](https://learn.microsoft.com/en-us/windows/win32/shell/common-file-dialog) (see **the Wiki** for more info). An improved version of the former [TIFF Tools repository](https://github.com/javadbayat/tifftools).
 
 This product consists of the three files `maketiffX.js`, `splittiffX.js`, and `CommonFileDialog.dll`. You obtain the latter DLL file by compiling the C++ source code in this repository.
 
